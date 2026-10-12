@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>白日梦 Daydream · 隐私政策</title>
+<style>body{max-width:760px;margin:40px auto;padding:0 24px;font:16px/1.8 system-ui,sans-serif;color:#122c46}h1{font-size:28px}h2{font-size:20px}a{color:#0058a3}</style></head>
+<body>
+<h1>白日梦 Daydream 隐私政策</h1>
+<p>更新日期：2026年10月12日。本政策适用于白日梦 Daydream Chrome 扩展。</p>
+<h2>用途与处理的数据</h2>
+<p>本扩展用于将用户选择的网页文字及 YouTube 已有字幕翻译为中文。网页翻译与视频字幕翻译分别由用户开启。为获取视频字幕，扩展可能读取当前 YouTube 视频标识、字幕语言、字幕地址、原文及时间轴；在 YouTube 页面中，原始字幕可能在开启翻译前加载到当前页面内存。扩展不采集浏览历史列表，不读取表单输入、密码框或用户键入的内容来翻译，不录制音频。</p>
+<h2>Chrome 本地翻译</h2>
+<p>默认引擎为 Chrome 本地翻译。翻译由 Chrome 提供的设备端翻译能力完成，本扩展不将原文发送到豆包、腾讯云或开发者服务器。Chrome 可能需要下载语言模型，其下载及浏览器服务遵循 Chrome 自身政策。</p>
+<h2>用户主动选择的云翻译</h2>
+<p>选择豆包或腾讯云并主动开启对应翻译功能后，扩展通过 HTTPS 向所选服务商发送待翻译的网页片段或字幕。字幕可能按批次预翻译未来约5分钟的内容。豆包请求携带用户填写的 API Key，腾讯云请求使用用户填写的 SecretId 和 SecretKey 计算鉴权签名。网页原文可能包含页面中的个人信息，请按自己的需要选择引擎和开启范围。</p>
+<p>豆包接口服务商为火山引擎，腾讯云接口服务商为腾讯云。服务商可能处理请求内容、鉴权及网络信息，其存储和使用规则由其各自的服务条款与隐私政策决定。本扩展不运营翻译中转服务器，开发者不会通过扩展接收上述原文或密钥。</p>
+<h2>本机存储及删除</h2>
+<p>引擎设置、用户自行填写的密钥、内容类型、保留词及云翻译缓存保存在本机 Chrome 扩展存储，不使用 Chrome 同步存储。云翻译缓存最多约8 MB，超过后淘汰最早记录，缓存可保留到卸载扩展或清理扩展数据。字幕拖动位置保存在 YouTube 网站的本机 localStorage 中；在字幕区域双击可删除保存的位置。设置中清空密钥并保存可删除该密钥值。卸载扩展会删除本机扩展存储；网站 localStorage 需双击重置位置或通过 Chrome 清理该网站数据。</p>
+<h2>广告、分析与数据用途</h2>
+<p>本扩展不包含广告、行为分析或第三方跟踪脚本，不出售用户数据，不将数据用于广告、用户画像或信用评估。处理数据仅用于用户要求的翻译功能。白日梦 Daydream 对用户数据的使用遵循 Chrome 网上应用店用户数据政策，包括 Limited Use（有限使用）要求。</p>
+<h2>费用及联系</h2>
+<p>扩展本身免费。用户自行选择的云翻译服务可能按服务商规则计费，由用户使用自己的账户及密钥。若有隐私相关问题，请通过 Chrome 网上应用店中本扩展的开发者联系方式联系发布者。</p>
+<p>公开项目维护者：hesay77-cmyk。隐私问题请通过 <a href="https://github.com/hesay77-cmyk/daydream-translator/issues">GitHub Issues</a> 联系，请勿公开密钥或个人记录。</p>
+</body></html>

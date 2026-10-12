@@ -1,0 +1,82 @@
+.html5-video-player.ytzh-ready:has(> .ytzh-overlay.ytzh-visible) .ytp-caption-window-container {
+  visibility: hidden !important;
+}
+
+.ytzh-overlay {
+  position: absolute;
+  z-index: 60;
+  left: 2%;
+  right: 2%;
+  bottom: 9%;
+  display: none;
+  text-align: center;
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  text-shadow: 0 2px 4px #000, 0 0 2px #000;
+}
+
+.ytzh-overlay.ytzh-positioned {
+  right: auto;
+  bottom: auto;
+  width: 96%;
+  transform: translate(-50%, -50%);
+}
+
+.ytzh-overlay.ytzh-dragging {
+  cursor: grabbing;
+}
+
+.ytzh-overlay.ytzh-visible {
+  display: block;
+}
+
+.ytzh-disabled .ytzh-overlay {
+  display: none !important;
+}
+
+.ytzh-page-translation {
+  display: block !important;
+  color: #1687e8 !important;
+  font: 600 0.95em/1.5 "Microsoft YaHei", sans-serif !important;
+}
+
+.ytzh-chinese,
+.ytzh-english {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0.12em auto;
+  padding: 0.08em 0.3em;
+  border-radius: 0.12em;
+  background: rgb(0 0 0 / 50%);
+  color: #2f92e8;
+  font-family: "Noto Sans SC", "Microsoft YaHei UI", sans-serif;
+  font-size: clamp(16px, 1.85vw, 29px);
+  line-height: 1.35;
+}
+
+.ytzh-chinese {
+  font-weight: 600;
+}
+
+.ytzh-english {
+  color: #ffda1a;
+  font-size: clamp(12px, 1.35vw, 22px);
+  white-space: nowrap;
+}
+
+.ytzh-notice {
+  position: fixed;
+  z-index: 2147483647;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(560px, 90vw);
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #202124;
+  color: white;
+  font: 14px/1.5 "Microsoft YaHei", sans-serif;
+  box-shadow: 0 4px 16px #0006;
+}

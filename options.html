@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>白日梦 Daydream</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main>
+    <header class="brand">
+      <img src="icons/icon-128.png" width="56" height="56" alt="白日梦字幕卡片图标">
+      <div>
+        <h1>白日梦 Daydream</h1>
+        <p>视频字幕翻译 · 网页双语阅读</p>
+      </div>
+    </header>
+    <section class="translation-controls" aria-label="翻译开关与快捷键">
+      <button id="toggle-subtitles" type="button" aria-pressed="false">开启字幕翻译</button>
+      <p id="subtitle-state" role="status" aria-live="polite">字幕状态：正在读取…</p>
+      <p><kbd>Alt</kbd> + <kbd>A</kbd>：仅开关视频字幕翻译（目前支持 YouTube）。</p>
+      <button id="toggle-webpage" type="button" class="secondary" aria-pressed="false">开启网页文字翻译</button>
+      <p><kbd>Alt</kbd> + <kbd>W</kbd>：开关网页文字翻译，保留原文，中文显示在下方；滚动时继续翻译新内容。</p>
+      <p>两个功能独立开关。请在网页中使用快捷键；首次安装或更新后请刷新网页。网页文字翻译支持普通网站，Chrome 内置页面和商店页面除外。</p>
+    </section>
+    <label>翻译引擎
+      <select id="engine">
+        <option value="chrome">Chrome 本地翻译（免费）</option>
+        <option value="tencent">腾讯云机器翻译</option>
+        <option value="doubao">豆包精翻（doubao-seed-translation-250915）</option>
+      </select>
+    </label>
+    <section id="tencent-fields">
+      <label>SecretId <input id="secret-id" autocomplete="off"></label>
+      <label>SecretKey <input id="secret-key" type="password" autocomplete="off"></label>
+      <label>地域 <input id="region" value="ap-guangzhou"></label>
+      <p>密钥只保存在本机 Chrome 中，请不要发给任何人。</p>
+    </section>
+    <section id="doubao-fields" hidden>
+      <label>API Key <input id="doubao-api-key" type="password" autocomplete="off" placeholder="ark-..."></label>
+      <label>模型 / 接入点 ID <input id="doubao-model" value="doubao-seed-translation-250915" autocomplete="off"></label>
+      <label>内容类型
+        <select id="doubao-domain">
+          <option value="general">通用</option>
+          <option value="footwear">鞋靴 / 服装</option>
+          <option value="gaming">游戏</option>
+          <option value="technology">科技 / 数码</option>
+          <option value="finance">财经</option>
+          <option value="automotive">汽车</option>
+        </select>
+      </label>
+      <label>保留原文词
+        <textarea id="doubao-protected-terms" rows="3" placeholder="用逗号分隔，例如：boondocker, Parkhurst"></textarea>
+      </label>
+      <p>API Key 只保存在本机 Chrome 中，请不要发给任何人。</p>
+    </section>
+    <div class="buttons">
+      <button id="save">保存</button>
+      <button id="test" class="secondary">测试连接</button>
+    </div>
+    <output id="status"></output>
+    <p><a href="PRIVACY.html" target="_blank" rel="noopener">隐私政策</a> · 扩展免费，云翻译服务可能单独计费。</p>
+  </main>
+  <script src="options.js"></script>
+</body>
+</html>

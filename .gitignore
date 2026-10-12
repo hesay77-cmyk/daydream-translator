@@ -1,0 +1,9 @@
+releases/
+reports/
+node_modules/
+__pycache__/
+.env
+.env.*
+*.pem
+*.crx
+*.zip

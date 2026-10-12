@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "白日梦 Daydream",
+  "version": "1.17.3",
+  "description": "使用 Chrome、腾讯云或豆包翻译网页文字和 YouTube 视频字幕。",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "minimum_chrome_version": "138",
+  "permissions": ["storage"],
+  "host_permissions": ["https://tmt.tencentcloudapi.com/*", "https://ark.cn-beijing.volces.com/*", "https://www.youtube.com/api/timedtext*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    },
+    "default_title": "白日梦 Daydream · 字幕与网页翻译",
+    "default_popup": "options.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["webpage.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["page-bridge.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
