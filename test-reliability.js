@@ -11,7 +11,7 @@ function captions(events, withPlayer = false) {
   const player = { querySelector: () => video, classList: { remove() {} } };
   const handlers = [];
   const c = {
-    URL, AbortController, console, Promise,
+    URL, AbortController, console, Promise, TextEncoder,
     Date: class extends Date { static now() { return now; } },
     location: new URL('https://www.youtube.com/watch?v=reliability'),
     localStorage: { getItem: () => null },
@@ -34,7 +34,7 @@ function captions(events, withPlayer = false) {
     .replace(/  function render\(source, translated\) \{[\s\S]*?\n  \}\n\n  function nativeCaption/, '  function render(source, translated) { record(source, translated); }\n\n  function nativeCaption')
     .replace('  bindVideo();\n})();', `  globalThis.audit = { updateTimelineCaption, bindVideo, pretranslateAhead,
       setup(video) { enabled=true; translationEngine='doubao'; boundVideo=video; },
-      cache(text, translated) { translations.set(text, Promise.resolve(translated)); },
+      cache(text, translated) { translations.set(translationId(text, displayCues.find(cue => cue.text === text)), Promise.resolve(translated)); },
       retryNow() { for (const failed of failures.values()) failed.retryAt=0; },
       state() { return { captionState, captionError, renderedSource, currentSource }; }
     };\n})();`);

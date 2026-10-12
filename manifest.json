@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "白日梦 Daydream",
-  "version": "1.17.3",
+  "version": "1.18.0",
   "description": "使用 Chrome、腾讯云或豆包翻译网页文字和 YouTube 视频字幕。",
   "icons": {
     "16": "icons/icon-16.png",

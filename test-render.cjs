@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const { chromium } = require(process.env.DAYDREAM_PLAYWRIGHT || 'playwright');
 
 (async () => {
-  const browser = await chromium.launch({ channel: 'chrome', executablePath: process.env.DAYDREAM_CHROMIUM, headless: true });
+  const browser = await chromium.launch({ executablePath: process.env.DAYDREAM_CHROMIUM, headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
     await page.route('**/*', route => route.fulfill({ contentType: 'text/html', body: '<!doctype html><html><body></body></html>' }));

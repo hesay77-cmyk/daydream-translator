@@ -65,7 +65,7 @@ async function handleMessage(message) {
     : config.translationEngine;
   const priority = message.purpose === 'subtitle' ? 0 : message.purpose === 'prefetch' ? 1 : 2;
   if (message.type === 'promote-translation') {
-    const key = await translationKey(engine, String(message.text || '').trim(), config);
+    const key = await translationKey(engine, String(message.text || '').trim(), config, String(message.scope || '').slice(0, 256));
     pendingTranslations.get(key)?.promote?.(0);
     return { ok: true };
   }
@@ -79,7 +79,10 @@ async function handleMessage(message) {
     if (engine !== 'doubao') return { ok: false, error: '批量上下文翻译仅供豆包使用' };
     const texts = Array.isArray(message.texts) ? message.texts.map(text => String(text).trim()).filter(Boolean) : [];
     if (!texts.length || texts.length > 20) throw new Error('每批字幕必须为1至20条');
-    return { ok: true, texts: await translateBatchCached(texts, config, priority) };
+    const scopes = Array.isArray(message.scopes) ? message.scopes.map(scope => String(scope).slice(0, 256)) : [];
+    if (scopes.length && scopes.length !== texts.length) throw new Error('字幕位置与文字数量不一致');
+    const context = Array.isArray(message.context) ? message.context.slice(-2).map(text => String(text).trim()).filter(Boolean) : [];
+    return { ok: true, texts: await translateBatchCached(texts, config, priority, { scopes, context }) };
   }
   if (message.type === 'test-doubao') {
     const texts = await requestDoubaoBatch([
@@ -90,15 +93,20 @@ async function handleMessage(message) {
   }
   const text = message.type.startsWith('test-') ? 'Hello' : String(message.text || '').trim();
   if (!text) throw new Error('没有需要翻译的文字');
+  if (engine === 'doubao' && message.type === 'translate' && message.scope) {
+    const scopes = [String(message.scope).slice(0, 256)];
+    const context = Array.isArray(message.context) ? message.context.slice(-2).map(text => String(text).trim()).filter(Boolean) : [];
+    return { ok: true, text: (await translateBatchCached([text], config, priority, { scopes, context }))[0] };
+  }
   const translated = message.type.startsWith('test-')
     ? await requestTranslation(engine, text, config)
     : await translateCached(engine, text, config, priority);
   return { ok: true, text: translated };
 }
 
-async function translateBatchCached(texts, config, priority = 1) {
+async function translateBatchCached(texts, config, priority = 1, options = {}) {
   const cache = await loadCache();
-  const keys = await Promise.all(texts.map(text => translationKey('doubao', text, config)));
+  const keys = await Promise.all(texts.map((text, index) => translationKey('doubao', text, config, options.scopes?.[index])));
   const results = texts.map((text, index) => cache[keys[index]]?.source === text ? cache[keys[index]].translated : null);
   const owned = [];
   let job;
@@ -114,7 +122,7 @@ async function translateBatchCached(texts, config, priority = 1) {
         job?.promote?.(value);
       };
       pendingTranslations.set(key, promise);
-      owned.push({ key, text, promise, resolve, reject });
+      owned.push({ key, text, index, promise, resolve, reject });
     }
     const pending = pendingTranslations.get(key);
     pending.promote?.(priority);
@@ -124,20 +132,21 @@ async function translateBatchCached(texts, config, priority = 1) {
   if (owned.length) {
     (async () => {
       try {
-        job = requestDoubaoBatch(owned.map(item => item.text), config, effectivePriority);
+        // Cached neighbours stay in the source so they still provide context.
+        job = requestDoubaoBatch(texts, config, effectivePriority, options.context);
         let translated;
         try { translated = await job; } catch (error) {
           if (!/没有完整保留字幕编号/.test(error.message)) throw error;
           translated = [];
           for (const item of owned) {
             job = requestDoubao(item.text, config, effectivePriority);
-            translated.push(await job);
+            translated[item.index] = await job;
           }
         }
-        if (translated.length !== owned.length || translated.some(text => !text)) throw new Error('批量译文不完整');
-        owned.forEach((item, index) => {
-          cache[item.key] = { engine: 'doubao', source: item.text, translated: translated[index], savedAt: Date.now() };
-          item.resolve(translated[index]);
+        if (owned.some(item => !translated[item.index])) throw new Error('批量译文不完整');
+        owned.forEach(item => {
+          cache[item.key] = { engine: 'doubao', source: item.text, translated: translated[item.index], savedAt: Date.now() };
+          item.resolve(translated[item.index]);
         });
         trimCache(cache);
         scheduleCacheWrite(cache);
@@ -191,9 +200,9 @@ async function translateCached(engine, text, config, priority = 1) {
   return pending;
 }
 
-function translationKey(engine, text, config) {
+function translationKey(engine, text, config, scope = '') {
   const cacheEngine = engine === 'doubao' ? `doubao:${DOUBAO_CACHE_VERSION}:${config.doubaoModel || 'doubao-seed-translation-250915'}:${config.doubaoDomain}:${config.doubaoProtectedTerms}` : engine;
-  return sha256(`${cacheEngine}\n${text}`);
+  return sha256(`${cacheEngine}\n${text}${scope ? `\n${scope}` : ''}`);
 }
 
 function requestTranslation(engine, text, config, priority = 1) {
@@ -217,8 +226,8 @@ function requestDoubao(text, config, priority = 1) {
   return queueDoubao(() => doubaoTranslate(text, config), priority);
 }
 
-function requestDoubaoBatch(texts, config, priority = 1) {
-  return queueDoubao(() => doubaoTranslateBatch(texts, config), priority);
+function requestDoubaoBatch(texts, config, priority = 1, context = []) {
+  return queueDoubao(() => doubaoTranslateBatch(texts, config, context), priority);
 }
 
 function queueDoubao(task, priority = 1) {
@@ -317,7 +326,7 @@ async function tencentTranslate(text, config) {
   return data.Response?.TargetText || '';
 }
 
-async function doubaoTranslate(text, config, termSource = text) {
+function prepareDoubaoSource(text, config, termSource = text) {
   const terms = preservedTerms(termSource, config.doubaoProtectedTerms, config.doubaoDomain);
   // Translation-only models receive source text, rather than chat instructions.
   const tokens = terms.map((term, index) => ({ ...term, token: `__YTKEEP_${index}__` }));
@@ -326,40 +335,71 @@ async function doubaoTranslate(text, config, termSource = text) {
     const escaped = term.source.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     source = source.replace(new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}(?![\\p{L}\\p{N}_])`, 'giu'), term.token);
   }
-  const response = await fetch(DOUBAO_ENDPOINT, {
-    method: 'POST',
-    signal: AbortSignal.timeout(45000),
-    headers: {
-      Authorization: `Bearer ${config.doubaoApiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: config.doubaoModel || 'doubao-seed-translation-250915',
-      stream: false,
-      input: [{
-        role: 'user',
-        content: [{
-          type: 'input_text',
-          text: source,
-          translation_options: { target_language: 'zh' }
-        }]
-      }]
-    })
-  });
-  const raw = await response.text();
-  let data;
-  try { data = JSON.parse(raw); } catch (_) { throw new Error(`豆包返回内容异常（HTTP ${response.status}）`); }
-  if (!response.ok || data.error) {
-    throw new Error(data.error?.message || data.message || `豆包请求失败（HTTP ${response.status}）`);
+  return { source, tokens };
+}
+
+function splitTranslationText(source) {
+  const parts = [];
+  let part = '';
+  // Keep protected terms intact; UTF-8 byte budgeting deliberately leaves token headroom.
+  for (const atom of source.match(/__YTKEEP_\d+__|[\s\S]/gu) || []) {
+    if (new TextEncoder().encode(part + atom).byteLength > 900) {
+      const boundary = part.lastIndexOf(' ');
+      if (boundary > part.length / 2) {
+        parts.push(part.slice(0, boundary + 1));
+        part = part.slice(boundary + 1);
+      } else {
+        parts.push(part);
+        part = '';
+      }
+    }
+    part += atom;
   }
-  let translated = (data.output || [])
-    .filter(item => item.type === 'message')
-    .flatMap(item => item.content || [])
-    .filter(item => item.type === 'output_text')
-    .map(item => item.text || '').join('').trim();
-  if (!translated) throw new Error('豆包没有返回译文');
-  for (const term of tokens) translated = translated.replaceAll(term.token, term.target);
-  return translated;
+  if (part) parts.push(part);
+  return parts;
+}
+
+async function doubaoTranslate(text, config, termSource = text, batch = false) {
+  const { source, tokens } = prepareDoubaoSource(text, config, termSource);
+  if (batch && new TextEncoder().encode(source).byteLength > 900) throw new Error('豆包字幕输入超过长度预算');
+  const results = [];
+  for (const part of batch ? [source] : splitTranslationText(source)) {
+    const response = await fetch(DOUBAO_ENDPOINT, {
+      method: 'POST',
+      signal: AbortSignal.timeout(45000),
+      headers: {
+        Authorization: `Bearer ${config.doubaoApiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: config.doubaoModel || 'doubao-seed-translation-250915',
+        stream: false,
+        input: [{
+          role: 'user',
+          content: [{
+            type: 'input_text',
+            text: part,
+            translation_options: { target_language: 'zh' }
+          }]
+        }]
+      })
+    });
+    const raw = await response.text();
+    let data;
+    try { data = JSON.parse(raw); } catch (_) { throw new Error(`豆包返回内容异常（HTTP ${response.status}）`); }
+    if (!response.ok || data.error) {
+      throw new Error(data.error?.message || data.message || `豆包请求失败（HTTP ${response.status}）`);
+    }
+    let translated = (data.output || [])
+      .filter(item => item.type === 'message')
+      .flatMap(item => item.content || [])
+      .filter(item => item.type === 'output_text')
+      .map(item => item.text || '').join('').trim();
+    if (!translated) throw new Error('豆包没有返回译文');
+    for (const term of tokens) translated = translated.replaceAll(term.token, term.target);
+    results.push(translated);
+  }
+  return results.join(' ');
 }
 
 function preservedTerms(text, protectedTerms = '', domainName = 'general') {
@@ -374,15 +414,26 @@ function preservedTerms(text, protectedTerms = '', domainName = 'general') {
   ).slice(0, 30);
 }
 
-async function doubaoTranslateBatch(texts, config) {
-  const source = texts.map((text, index) => `<CUE_${index}>${text}</CUE_${index}>`).join('\n');
-  const translated = await doubaoTranslate(source, config, texts.join('\n'));
-  const results = texts.map((_, index) => {
-    const match = translated.match(new RegExp(`<CUE_${index}>([\\s\\S]*?)<\\/CUE_${index}>`));
-    return match?.[1].trim();
-  });
-  if (results.some(result => !result)) throw new Error('豆包没有完整保留字幕编号');
-  return results;
+async function doubaoTranslateBatch(texts, config, context = []) {
+  const history = context.slice(-2);
+  const encode = items => items.map((text, index) => `<CUE_${index}>${text}</CUE_${index}>`).join('\n');
+  const size = items => new TextEncoder().encode(prepareDoubaoSource(encode(items), config, items.join('\n')).source).byteLength;
+  while (history.length && size([...history, ...texts]) > 900) history.shift();
+  if (size(texts) > 900) {
+    if (texts.length === 1) return [await doubaoTranslate(texts[0], config)];
+    const middle = Math.ceil(texts.length / 2);
+    const left = await doubaoTranslateBatch(texts.slice(0, middle), config, history);
+    const right = await doubaoTranslateBatch(texts.slice(middle), config, [...history, ...texts.slice(0, middle)].slice(-2));
+    return [...left, ...right];
+  }
+  const all = [...history, ...texts];
+  const translated = await doubaoTranslate(encode(all), config, all.join('\n'), true);
+  const matches = [...translated.matchAll(/<CUE_(\d+)>([\s\S]*?)<\/CUE_\1>/g)];
+  const results = all.map((_, index) => matches.filter(match => Number(match[1]) === index));
+  if (matches.length !== all.length || results.some(items => items.length !== 1 || !items[0][2].trim())) {
+    throw new Error('豆包没有完整保留字幕编号');
+  }
+  return results.slice(history.length).map(items => items[0][2].trim());
 }
 
 async function sha256(value) {

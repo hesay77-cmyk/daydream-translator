@@ -5,6 +5,7 @@
   let enabled = false;
   let translationEngine = 'chrome';
   let currentSource = '';
+  let currentScope = '';
   let updateVersion = 0;
   let updateTimer;
   let boundVideo;
@@ -91,14 +92,26 @@
     throw error;
   }
 
-  function translate(text, purpose = 'subtitle') {
-    if (purpose === 'subtitle' && prefetchPending.has(text)) {
-      chrome.runtime.sendMessage({ type: 'promote-translation', text }).catch(() => {});
+  function subtitleScope(cue) {
+    return translationEngine === 'doubao' && cue ? `subtitle-v2:${timelineVideoId}:${cue.start}` : '';
+  }
+
+  function translationId(text, cue) {
+    const scope = subtitleScope(cue);
+    return scope ? `${scope}\n${text}` : text;
+  }
+
+  function translate(text, purpose = 'subtitle', cue) {
+    const key = translationId(text, cue);
+    const scope = subtitleScope(cue);
+    if (purpose === 'subtitle' && prefetchPending.has(key)) {
+      chrome.runtime.sendMessage({ type: 'promote-translation', text, scope }).catch(() => {});
     }
-    if (!translations.has(text)) {
+    if (!translations.has(key)) {
       const request = (async () => {
         if (translationEngine !== 'chrome') {
-          const result = await chrome.runtime.sendMessage({ type: 'translate', text, purpose });
+          const context = scope ? precedingContext(displayCues, displayCues.findIndex(item => item.start === cue.start && item.text === cue.text)) : [];
+          const result = await chrome.runtime.sendMessage({ type: 'translate', text, purpose, scope, context });
           if (!result?.ok) throw new Error(result?.error || '云翻译失败');
           return result.text;
         }
@@ -108,14 +121,14 @@
         const translator = await translators.get(sourceLanguage);
         return translateWithRetry(translator, text);
       })().catch(error => {
-        if (translations.get(text) === request) translations.delete(text);
+        if (translations.get(key) === request) translations.delete(key);
         translators.clear();
         detectorPromise = undefined;
         throw error;
       });
-      translations.set(text, request);
+      translations.set(key, request);
     }
-    return translations.get(text);
+    return translations.get(key);
   }
 
   function activePlayer() {
@@ -214,6 +227,43 @@
       .trim();
   }
 
+  function precedingContext(cues, index) {
+    const context = [];
+    for (let offset = index - 1; offset >= 0 && context.length < 2; offset--) {
+      if (cues[offset + 1].start - cues[offset].end > 5000) break;
+      context.unshift(cues[offset].text);
+    }
+    return context;
+  }
+
+  function subtitleInputSize(texts) {
+    const source = texts.map((text, index) => `<CUE_${index}>${text}</CUE_${index}>`).join('\n');
+    return new TextEncoder().encode(source).byteLength;
+  }
+
+  function planSubtitleBatches(cues, from = 0, until = Infinity) {
+    const batches = [];
+    // ponytail: 900 UTF-8 bytes is a conservative input budget, not exact model tokenization.
+    while (from >= 0 && from < cues.length && cues[from].start <= until) {
+      const context = precedingContext(cues, from);
+      while (context.length && subtitleInputSize([...context, cues[from].text]) > 900) context.shift();
+      let end = from;
+      let sentenceEnd = from;
+      while (end < cues.length && cues[end].start <= until && end - from < 20) {
+        if (end > from && cues[end].start - cues[end - 1].end > 5000) break;
+        if (end > from && subtitleInputSize([...context, ...cues.slice(from, end + 1).map(cue => cue.text)]) > 900) break;
+        end++;
+        if (/[.!?。！？]["'”’）)\]]*$/.test(cues[end - 1].text)) sentenceEnd = end;
+      }
+      const limited = end < cues.length && cues[end].start <= until
+        && cues[end].start - cues[end - 1].end <= 5000;
+      if (limited && sentenceEnd > from) end = sentenceEnd;
+      batches.push({ cues: cues.slice(from, end), context });
+      from = end;
+    }
+    return batches;
+  }
+
   function loadTimeline() {
     const expectedVideoId = new URL(location.href).searchParams.get('v')
       || location.pathname.match(/^\/shorts\/([^/]+)/)?.[1];
@@ -274,7 +324,7 @@
       captionError = '';
       return true;
     }
-    await showCaption(cue.text);
+    await showCaption(cue.text, cue);
     return true;
   }
 
@@ -293,17 +343,20 @@
     await showCaption(source);
   }
 
-  async function showCaption(source) {
-    if (source !== currentSource) {
+  async function showCaption(source, cue) {
+    const key = translationId(source, cue);
+    const scope = subtitleScope(cue);
+    if (source !== currentSource || scope !== currentScope) {
       currentSource = source;
+      currentScope = scope;
       updateVersion++;
       hideOverlays();
       captionError = '';
     }
     const version = updateVersion;
     if (source === renderedSource || (captionRequest?.source === source && captionRequest.version === version)) return;
-    const failed = failures.get(source);
-    if (!translations.has(source) && failed && (failed.count >= 3 || Date.now() < failed.retryAt)) return;
+    const failed = failures.get(key);
+    if (!translations.has(key) && failed && (failed.count >= 3 || Date.now() < failed.retryAt)) return;
     const request = { source, version };
     captionRequest = request;
     captionState = '翻译字幕正在生成';
@@ -313,14 +366,14 @@
       }
     }, 1000);
     try {
-      const pending = translate(source);
+      const pending = translate(source, 'subtitle', cue);
       pretranslateAhead();
       const translated = await pending;
       if (enabled && version === updateVersion && source === currentSource) {
         if (translated) render(source, translated);
         else hideOverlays();
         renderedSource = source;
-        failures.delete(source);
+        failures.delete(key);
         captionError = '';
         captionState = translated ? (timelineCues.length ? '已读取时间轴' : '跟随原字幕') : '原字幕无需翻译';
       }
@@ -328,7 +381,7 @@
       if (version === updateVersion) {
         hideOverlays();
         const count = (failed?.count || 0) + 1;
-        failures.set(source, { count, retryAt: Date.now() + count * 1000 });
+        failures.set(key, { count, retryAt: Date.now() + count * 1000 });
         captionState = count < 3 ? '翻译失败，稍后自动重试' : '翻译失败，请检查设置后重新开启';
         captionError = String(error.message || error);
       }
@@ -381,31 +434,31 @@
       displayCues = [];
       loadTimeline();
       updateTimelineCaption();
-      const seen = new Set();
-      const cues = displayCues
-        .filter(cue => cue.start >= start && cue.start <= start + 5 * 60 * 1000)
-        .filter(cue => cue.text && !seen.has(cue.text) && seen.add(cue.text));
-      const texts = cues.map(cue => cue.text);
       if (translationEngine === 'doubao') {
-        for (let index = 0; index < texts.length; index += 20) {
+        const first = displayCues.findIndex(cue => cue.start >= start);
+        for (const batch of planSubtitleBatches(displayCues, first, start + 5 * 60 * 1000)) {
           if (!enabled || generation !== prefetchGeneration) return;
-          const batch = texts.slice(index, index + 20).filter(text => !translations.has(text));
-          if (!batch.length) continue;
-          const request = chrome.runtime.sendMessage({ type: 'translate-batch', texts: batch, purpose: 'prefetch' }).then(result => {
-            if (!result?.ok || result.texts?.length !== batch.length || result.texts.some(text => !text)) {
+          const entries = batch.cues.map((cue, offset) => ({ cue, offset, key: translationId(cue.text, cue) }));
+          const missing = entries.filter(entry => !translations.has(entry.key));
+          if (!missing.length) continue;
+          const request = chrome.runtime.sendMessage({
+            type: 'translate-batch', texts: batch.cues.map(cue => cue.text),
+            scopes: batch.cues.map(subtitleScope), context: batch.context, purpose: 'prefetch'
+          }).then(result => {
+            if (!result?.ok || result.texts?.length !== batch.cues.length || result.texts.some(text => !text)) {
               throw new Error(result?.error || '豆包批量译文不完整');
             }
             return result.texts;
           });
-          const waiting = batch.map((text, offset) => {
-            prefetchPending.add(text);
+          const waiting = missing.map(({ key, offset }) => {
+            prefetchPending.add(key);
             const pending = request.then(results => results[offset]).catch(error => {
-              if (translations.get(text) === pending) translations.delete(text);
+              if (translations.get(key) === pending) translations.delete(key);
               throw error;
             }).finally(() => {
-              if (translations.get(text) === pending || !translations.has(text)) prefetchPending.delete(text);
+              if (translations.get(key) === pending || !translations.has(key)) prefetchPending.delete(key);
             });
-            translations.set(text, pending);
+            translations.set(key, pending);
             return pending;
           });
           await Promise.all(waiting);
@@ -413,6 +466,11 @@
         if (enabled && generation === prefetchGeneration) prefetchedWindow = windowKey;
         return;
       }
+      const seen = new Set();
+      const texts = displayCues
+        .filter(cue => cue.start >= start && cue.start <= start + 5 * 60 * 1000)
+        .filter(cue => cue.text && !seen.has(cue.text) && seen.add(cue.text))
+        .map(cue => cue.text);
       for (const text of texts) {
         if (!enabled || generation !== prefetchGeneration) return;
         await translate(text, 'prefetch');
@@ -430,6 +488,10 @@
     const videoId = new URL(location.href).searchParams.get('v')
       || location.pathname.match(/^\/shorts\/([^/]+)/)?.[1];
     if (video === boundVideo && videoId === boundVideoId) return;
+    if (translationEngine === 'doubao') {
+      translations.clear();
+      prefetchPending.clear();
+    }
     videoListeners?.abort();
     hideOverlays();
     updateVersion++;
