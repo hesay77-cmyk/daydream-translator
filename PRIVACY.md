@@ -1,6 +1,6 @@
 # Twinline 隐私政策
 
-更新日期：2026年11月12日。本政策适用于Twinline Chrome 扩展。
+更新日期：2026年11月13日。本政策适用于 Twinline Chrome 扩展。
 
 ## 用途及处理的数据
 
