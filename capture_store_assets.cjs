@@ -1,6 +1,6 @@
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { chromium } = require(process.env.DAYDREAM_PLAYWRIGHT || 'playwright');
+const { chromium } = require('C:/Users/秦二/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 
 (async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -9,7 +9,7 @@ const { chromium } = require(process.env.DAYDREAM_PLAYWRIGHT || 'playwright');
     await page.addInitScript(() => {
       window.chrome = {
         storage: { local: { get: async defaults => defaults, set: async () => {} } },
-        tabs: { query: async () => [{id:1}], sendMessage: async () => ({ok:true,enabled:false,state:'未开启'}) },
+        tabs: { query: async () => [] },
         runtime: { sendMessage: async () => ({ ok: false }) }
       };
     });

@@ -16,7 +16,7 @@
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (!['translationEngine', 'doubaoModel', 'doubaoDomain', 'doubaoProtectedTerms', 'doubaoApiKey'].some(key => changes[key])) return;
+    if (!['translationEngine', 'doubaoModel', 'doubaoDomain', 'doubaoProtectedTerms', 'doubaoApiKey', 'qwenMtBaseUrl', 'qwenMtApiKey'].some(key => changes[key])) return;
     if (changes.translationEngine) translationEngine = changes.translationEngine.newValue || 'chrome';
     run++;
     restorePage();
@@ -112,7 +112,7 @@
     try {
       if (translationEngine !== 'chrome') {
         const result = await chrome.runtime.sendMessage({ type: 'translate', text: original.trim(), purpose: 'webpage' });
-        if (!result?.ok) throw new Error(result?.error || '腾讯云翻译失败');
+        if (!result?.ok) throw new Error(result?.error || '云翻译失败');
         if (!enabled || thisRun !== run || node.nodeValue !== original) return;
         if (!result.text || result.text.trim() === original.trim()) return;
         const line = document.createElement('span');
@@ -196,6 +196,7 @@
     if (enabled) {
       const engineName = translationEngine === 'doubao' ? '豆包精翻'
         : translationEngine === 'tencent' ? '腾讯云机器翻译'
+        : translationEngine === 'qwen-mt' ? '千问精翻（Qwen-MT-Plus）'
         : 'Chrome 本地翻译';
       notice(`网页文字翻译已开启：${engineName}（Alt+W 关闭）`);
       schedulePage(0);

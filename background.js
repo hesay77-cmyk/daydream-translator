@@ -1,5 +1,8 @@
 const ENDPOINT = 'https://tmt.tencentcloudapi.com/';
 const DOUBAO_ENDPOINT = 'https://ark.cn-beijing.volces.com/api/v3/responses';
+const QWEN_MT_HOST = 'https://dashscope.aliyuncs.com';
+const QWEN_MT_MODEL = 'qwen-mt-plus';
+const QWEN_MT_CHAT_PATH = '/compatible-mode/v1/chat/completions';
 const SERVICE = 'tmt';
 const CACHE_KEY = 'tencentTranslationCache';
 const CACHE_LIMIT = 8 * 1024 * 1024;
@@ -19,7 +22,7 @@ const pendingTranslations = new Map();
 const requestQueues = new Map();
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!['translate', 'translate-batch', 'promote-translation', 'test-tencent', 'test-doubao', 'download-caption'].includes(message?.type)) return;
+  if (!['translate', 'translate-batch', 'promote-translation', 'test-tencent', 'test-doubao', 'test-qwen-mt', 'download-caption'].includes(message?.type)) return;
   handleMessage(message).then(sendResponse).catch(error => {
     sendResponse({ ok: false, error: error.message || String(error) });
   });
@@ -55,13 +58,16 @@ async function handleMessage(message) {
     doubaoApiKey: '',
     doubaoModel: 'doubao-seed-translation-250915',
     doubaoDomain: 'general',
-    doubaoProtectedTerms: 'boondocker, boondockers'
+    doubaoProtectedTerms: 'boondocker, boondockers',
+    qwenMtApiKey: '',
+    qwenMtBaseUrl: ''
   });
-  if (['translate', 'translate-batch'].includes(message.type) && !['tencent', 'doubao'].includes(config.translationEngine)) {
+  if (['translate', 'translate-batch'].includes(message.type) && !['tencent', 'doubao', 'qwen-mt'].includes(config.translationEngine)) {
     return { ok: false, local: true };
   }
   const engine = message.type === 'test-doubao' ? 'doubao'
     : message.type === 'test-tencent' ? 'tencent'
+    : message.type === 'test-qwen-mt' ? 'qwen-mt'
     : config.translationEngine;
   const priority = message.purpose === 'subtitle' ? 0 : message.purpose === 'prefetch' ? 1 : 2;
   if (message.type === 'promote-translation') {
@@ -74,6 +80,9 @@ async function handleMessage(message) {
   }
   if (engine === 'doubao' && !config.doubaoApiKey) {
     throw new Error('请先在插件设置中填写豆包 API Key');
+  }
+  if (engine === 'qwen-mt' && !config.qwenMtApiKey) {
+    throw new Error('请先在插件设置中填写百炼 API Key');
   }
   if (message.type === 'translate-batch') {
     if (engine !== 'doubao') return { ok: false, error: '批量上下文翻译仅供豆包使用' };
@@ -90,6 +99,10 @@ async function handleMessage(message) {
       'He said they were surprisingly comfortable for the price.'
     ], config);
     return { ok: true, batch: true, texts };
+  }
+  if (message.type === 'test-qwen-mt') {
+    const source = 'こんにちは';
+    return { ok: true, source, text: await requestTranslation(engine, source, config) };
   }
   const text = message.type.startsWith('test-') ? 'Hello' : String(message.text || '').trim();
   if (!text) throw new Error('没有需要翻译的文字');
@@ -201,12 +214,49 @@ async function translateCached(engine, text, config, priority = 1) {
 }
 
 function translationKey(engine, text, config, scope = '') {
-  const cacheEngine = engine === 'doubao' ? `doubao:${DOUBAO_CACHE_VERSION}:${config.doubaoModel || 'doubao-seed-translation-250915'}:${config.doubaoDomain}:${config.doubaoProtectedTerms}` : engine;
+  const cacheEngine = engine === 'doubao' ? `doubao:${DOUBAO_CACHE_VERSION}:${config.doubaoModel || 'doubao-seed-translation-250915'}:${config.doubaoDomain}:${config.doubaoProtectedTerms}`
+    : engine === 'qwen-mt' ? `qwen-mt:${qwenMtEndpoint(config)}:${QWEN_MT_MODEL}` : engine;
   return sha256(`${cacheEngine}\n${text}${scope ? `\n${scope}` : ''}`);
 }
 
 function requestTranslation(engine, text, config, priority = 1) {
+  if (engine === 'qwen-mt') return queueRequest(engine, () => qwenMtTranslate(text, config), priority);
   return engine === 'doubao' ? requestDoubao(text, config, priority) : requestTencent(text, config, priority);
+}
+
+function qwenMtEndpoint(config) {
+  let url;
+  try { url = new URL(config.qwenMtBaseUrl?.trim() || QWEN_MT_HOST); } catch (_) {}
+  if (!url || url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash ||
+      !/^(?:dashscope(?:-intl)?\.aliyuncs\.com|ws-[a-z0-9-]+\.[a-z0-9-]+\.maas\.aliyuncs\.com)$/.test(url.hostname) ||
+      !['', '/compatible-mode/v1', QWEN_MT_CHAT_PATH].includes(url.pathname.replace(/\/+$/, ''))) {
+    throw new Error('请填写百炼控制台的 OpenAI compatible 地址');
+  }
+  return url.origin + QWEN_MT_CHAT_PATH;
+}
+
+async function qwenMtTranslate(text, config) {
+  const response = await fetch(qwenMtEndpoint(config), {
+    method: 'POST',
+    redirect: 'error',
+    credentials: 'omit',
+    signal: AbortSignal.timeout(20000),
+    headers: { Authorization: `Bearer ${config.qwenMtApiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: QWEN_MT_MODEL,
+      messages: [{ role: 'user', content: text }],
+      stream: false,
+      translation_options: { source_lang: 'auto', target_lang: 'Chinese' }
+    })
+  });
+  if (!response.ok) throw new Error(`千问请求失败（HTTP ${response.status}）${[401, 403].includes(response.status) ? '，请检查 Key、地域和模型权限' : ''}`);
+  const data = await response.json().catch(() => { throw new Error('千问返回的内容不是有效 JSON'); });
+  const choice = data?.choices?.[0];
+  const translation = choice?.message?.content;
+  if ((choice?.finish_reason && choice.finish_reason !== 'stop') || typeof translation !== 'string' || !translation.trim()) {
+    throw new Error('千问未返回完整译文');
+  }
+  return translation.trim();
 }
 
 function requestTencent(text, config, priority = 1) {
@@ -254,7 +304,7 @@ function queueRequest(engine, task, priority) {
     queue.running = true;
     Promise.resolve().then(async () => {
       while (queue.items.length) {
-        const wait = Math.max(0, (engine === 'doubao' ? 1050 : 250) - (Date.now() - queue.lastStart));
+        const wait = Math.max(0, (engine === 'doubao' ? 1050 : engine === 'qwen-mt' ? 400 : 250) - (Date.now() - queue.lastStart));
         if (wait) await new Promise(resolve => setTimeout(resolve, wait));
         queue.items.sort((a, b) => a.priority - b.priority);
         const next = queue.items.shift();

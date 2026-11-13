@@ -30,12 +30,23 @@ async function bounded(promise, label) {
     worker.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     const manifest = await bounded(worker.evaluate(() => chrome.runtime.getManifest()), 'Worker manifest read');
     console.log('Worker manifest read');
-    assert.equal(manifest.version, '1.18.0');
+    assert.equal(manifest.version, '1.18.2');
     assert.deepEqual(manifest.permissions, ['storage']);
     await bounded(worker.evaluate(async () => {
       await chrome.storage.local.set({ translationEngine: 'doubao', doubaoApiKey: 'mock-only', doubaoProtectedTerms: '' });
       self.fixtureInputs = [];
+      self.qwenInputs = [];
       self.fetch = async (url, options) => {
+        if (url === 'https://ws-test.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions') {
+          const body = JSON.parse(options.body);
+          if (options.headers.Authorization !== 'Bearer mock-qwen' || body.model !== 'qwen-mt-plus' || body.translation_options.target_lang !== 'Chinese') {
+            throw new Error('Unexpected Qwen-MT-Plus request');
+          }
+          const source = body.messages[0].content;
+          self.qwenInputs.push(source);
+          const translation = source === 'こんにちは' ? '你好' : `千问模拟译文：${source}`;
+          return Response.json({ choices: [{ finish_reason: 'stop', message: { content: translation } }] });
+        }
         if (url !== 'https://ark.cn-beijing.volces.com/api/v3/responses') throw new Error('Fixture blocks external network');
         const source = JSON.parse(options.body).input[0].content[0].text;
         self.fixtureInputs.push(source);
@@ -52,6 +63,9 @@ async function bounded(promise, label) {
     await context.route('**/*', async route => {
       const url = route.request().url();
       if (url.startsWith('chrome-extension://')) return route.continue();
+      if (url === 'https://example.test/') {
+        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<!doctype html><p>こんにちは</p>' });
+      }
       if (url.startsWith('https://www.youtube.com/api/timedtext')) {
         return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ events }) });
       }
@@ -98,7 +112,23 @@ async function bounded(promise, label) {
     const inputs = await worker.evaluate(() => self.fixtureInputs);
     assert.ok(inputs.some(source => source.includes('Sentence 0') && source.includes('Sentence 1')), 'Actual worker carries neighbouring source context');
     assert.ok(inputs.every(source => Buffer.byteLength(source) <= 900));
+    await page.keyboard.press('Alt+a');
+    await popup.locator('#engine').selectOption('qwen-mt');
+    assert.match(await popup.locator('#engine option:checked').textContent(), /Qwen-MT-Plus/);
+    await popup.locator('#qwen-mt-api-key').fill('mock-qwen');
+    await popup.locator('#qwen-mt-base-url').fill('https://ws-test.cn-beijing.maas.aliyuncs.com/compatible-mode/v1');
+    await popup.locator('#test').click();
+    await popup.waitForFunction(() => document.querySelector('#status').textContent === '连接成功：こんにちは → 你好');
+    assert.equal(await worker.evaluate(async () => (await chrome.storage.local.get('doubaoApiKey')).doubaoApiKey), 'mock-only');
+    await page.keyboard.press('Alt+a');
+    await page.waitForFunction(() => document.querySelector('.ytzh-current')?.textContent.startsWith('千问模拟译文：Sentence 0'));
+    await page.keyboard.press('Alt+a');
+    const article = await context.newPage();
+    await article.goto('https://example.test/');
+    await article.keyboard.press('Alt+w');
+    await article.waitForFunction(() => document.querySelector('.ytzh-page-translation')?.textContent === '你好');
+    assert.ok((await worker.evaluate(() => self.qwenInputs)).includes('こんにちは'));
     assert.deepEqual(errors, [], 'No extension or fixture page errors');
-    console.log('Actual unpacked MV3 extension: manifest, content scripts, page bridge, worker messaging, context, playback, expiry, toggles and settings passed (mock API, fresh profile)');
+    console.log('Unpacked MV3 checks passed: Doubao context and playback; Qwen-MT-Plus popup, connection, subtitles and Japanese webpage (mock APIs)');
   } finally { await context.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

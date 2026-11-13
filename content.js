@@ -33,7 +33,7 @@
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (!['translationEngine', 'doubaoModel', 'doubaoDomain', 'doubaoProtectedTerms', 'doubaoApiKey'].some(key => changes[key])) return;
+    if (!['translationEngine', 'doubaoModel', 'doubaoDomain', 'doubaoProtectedTerms', 'doubaoApiKey', 'qwenMtBaseUrl', 'qwenMtApiKey'].some(key => changes[key])) return;
     if (changes.translationEngine) translationEngine = changes.translationEngine.newValue || 'chrome';
     translations.clear();
     failures.clear();

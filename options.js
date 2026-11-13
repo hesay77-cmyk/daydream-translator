@@ -8,6 +8,9 @@ const doubaoApiKey = document.querySelector('#doubao-api-key');
 const doubaoModel = document.querySelector('#doubao-model');
 const doubaoDomain = document.querySelector('#doubao-domain');
 const doubaoProtectedTerms = document.querySelector('#doubao-protected-terms');
+const qwenMtFields = document.querySelector('#qwen-mt-fields');
+const qwenMtApiKey = document.querySelector('#qwen-mt-api-key');
+const qwenMtBaseUrl = document.querySelector('#qwen-mt-base-url');
 const status = document.querySelector('#status');
 const subtitleButton = document.querySelector('#toggle-subtitles');
 const webpageButton = document.querySelector('#toggle-webpage');
@@ -61,9 +64,11 @@ for (const [button, feature, label] of [[subtitleButton, 'subtitles', '字幕翻
 function showFields() {
   fields.hidden = engine.value !== 'tencent';
   doubaoFields.hidden = engine.value !== 'doubao';
+  qwenMtFields.hidden = engine.value !== 'qwen-mt';
 }
 
 async function save() {
+  if (engine.value === 'qwen-mt' && !qwenMtBaseUrl.checkValidity()) throw new Error('请填写完整的百炼接口地址');
   await chrome.storage.local.set({
     translationEngine: engine.value,
     tencentSecretId: secretId.value.trim(),
@@ -72,7 +77,11 @@ async function save() {
     doubaoApiKey: doubaoApiKey.value.trim(),
     doubaoModel: doubaoModel.value.trim() || 'doubao-seed-translation-250915',
     doubaoDomain: doubaoDomain.value,
-    doubaoProtectedTerms: doubaoProtectedTerms.value.trim()
+    doubaoProtectedTerms: doubaoProtectedTerms.value.trim(),
+    ...(engine.value === 'qwen-mt' ? {
+      qwenMtApiKey: qwenMtApiKey.value.trim(),
+      qwenMtBaseUrl: qwenMtBaseUrl.value.trim()
+    } : {})
   });
   status.textContent = '已保存';
 }
@@ -81,17 +90,17 @@ engine.addEventListener('change', showFields);
 document.querySelector('#save').addEventListener('click', () => save().catch(showError));
 document.querySelector('#test').addEventListener('click', async () => {
   try {
-    status.textContent = '正在测试…';
     await save();
     if (engine.value === 'chrome') {
       status.textContent = 'Chrome 本地翻译无需测试';
       return;
     }
-    const result = await chrome.runtime.sendMessage({ type: engine.value === 'doubao' ? 'test-doubao' : 'test-tencent' });
+    status.textContent = '正在测试…';
+    const result = await chrome.runtime.sendMessage({ type: `test-${engine.value}` });
     if (!result?.ok) throw new Error(result?.error || '连接失败');
     status.textContent = result.batch
       ? `上下文翻译成功：${result.texts.join(' / ')}`
-      : `连接成功：Hello → ${result.text}`;
+      : `连接成功：${result.source || 'Hello'} → ${result.text}`;
   } catch (error) {
     showError(error);
   }
@@ -109,7 +118,9 @@ chrome.storage.local.get({
   doubaoApiKey: '',
   doubaoModel: 'doubao-seed-translation-250915',
   doubaoDomain: 'general',
-  doubaoProtectedTerms: 'boondocker, boondockers'
+  doubaoProtectedTerms: 'boondocker, boondockers',
+  qwenMtApiKey: '',
+  qwenMtBaseUrl: ''
 }).then(config => {
   engine.value = config.translationEngine;
   secretId.value = config.tencentSecretId;
@@ -119,5 +130,7 @@ chrome.storage.local.get({
   doubaoModel.value = config.doubaoModel;
   doubaoDomain.value = config.doubaoDomain;
   doubaoProtectedTerms.value = config.doubaoProtectedTerms;
+  qwenMtApiKey.value = config.qwenMtApiKey;
+  qwenMtBaseUrl.value = config.qwenMtBaseUrl;
   showFields();
 });

@@ -17,7 +17,7 @@ for name in files:
         raise RuntimeError(f'Missing release file: {name}')
     if source.suffix in {'.js', '.html', '.json'} and secret.search(source.read_text(encoding='utf-8')):
         raise RuntimeError(f'Potential embedded credential found in {name}; no package created')
-archive = release / f'daydream-{manifest["version"]}.zip'
+archive = release / f'twinline-{manifest["version"]}.zip'
 if archive.exists():
     raise FileExistsError(f'Preserving existing release: {archive}')
 with zipfile.ZipFile(archive, 'x', compression=zipfile.ZIP_DEFLATED) as package:

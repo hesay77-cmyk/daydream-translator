@@ -1,3 +1,4 @@
+const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { webcrypto } = require('node:crypto');
@@ -119,6 +120,43 @@ vm.runInThisContext(fs.readFileSync('background.js', 'utf8'));
   const migrated = chrome.storage.local.data;
   if (migrated.translationEngine !== 'doubao' || migrated.doubaoDomain !== 'gaming' || migrated.doubaoProtectedTerms !== 'Steam' ||
       migrated.qwenApiKey || migrated.tencentTranslationCache.old || !migrated.tencentTranslationCache.keep) throw new Error('Legacy settings cleanup failed');
+
+  const workspace = 'https://ws-test.cn-beijing.maas.aliyuncs.com';
+  const plus = { qwenMtApiKey: 'mock-only', qwenMtBaseUrl: `${workspace}/compatible-mode/v1` };
+  Object.assign(migrated, { translationEngine: 'qwen-mt', ...plus });
+  await migrateLegacySettings();
+  assert.equal(migrated.translationEngine, 'qwen-mt');
+  assert.equal(migrated.qwenMtApiKey, 'mock-only');
+  let calls = 0;
+  global.fetch = async (url, options) => {
+    calls++;
+    assert.equal(url, `${workspace}${QWEN_MT_CHAT_PATH}`);
+    assert.equal(options.headers.Authorization, 'Bearer mock-only');
+    assert.equal(options.redirect, 'error');
+    assert.equal(options.credentials, 'omit');
+    assert.deepEqual(JSON.parse(options.body), {
+      model: 'qwen-mt-plus', messages: [{ role: 'user', content: 'こんにちは' }], stream: false,
+      translation_options: { source_lang: 'auto', target_lang: 'Chinese' }
+    });
+    return { ok: true, json: async () => ({ choices: [{ finish_reason: 'stop', message: { content: '你好' } }] }) };
+  };
+  assert.deepEqual(await handleMessage({ type: 'test-qwen-mt' }), { ok: true, source: 'こんにちは', text: '你好' });
+  for (const purpose of ['subtitle', 'webpage']) {
+    assert.deepEqual(await handleMessage({ type: 'translate', text: 'こんにちは', purpose }), { ok: true, text: '你好' });
+  }
+  assert.equal(calls, 2, 'Connection test is live; subtitle/page share one cached translation');
+  for (const qwenMtBaseUrl of ['http://ws-test.cn-beijing.maas.aliyuncs.com', 'https://ws-test.cn-beijing.maas.aliyuncs.com.example.test', 'https://evil.test@ws-test.cn-beijing.maas.aliyuncs.com', `${workspace}/?key=bad`, `${workspace}/api/v1/services/aigc/multimodal-generation/generation`]) {
+    await assert.rejects(qwenMtTranslate('こんにちは', { ...plus, qwenMtBaseUrl }), /地址/);
+  }
+  assert.equal(calls, 2, 'Invalid addresses cannot receive a Key');
+  assert.equal(qwenMtEndpoint({ qwenMtBaseUrl: `${workspace}${QWEN_MT_CHAT_PATH}` }), `${workspace}${QWEN_MT_CHAT_PATH}`);
+  assert.equal(qwenMtEndpoint({}), `https://dashscope.aliyuncs.com${QWEN_MT_CHAT_PATH}`);
+  assert.notEqual(await translationKey('qwen-mt', 'こんにちは', plus), await translationKey('qwen-mt', 'こんにちは', {}));
+  assert.notEqual(await translationKey('qwen-mt', 'こんにちは', plus), await translationKey('doubao', 'こんにちは', {}));
+  global.fetch = async () => ({ ok: false, status: 401 });
+  await assert.rejects(qwenMtTranslate('こんにちは', plus), /401.*Key/);
+  global.fetch = async () => ({ ok: true, json: async () => ({ choices: [{ finish_reason: 'length', message: { content: '你' } }] }) });
+  await assert.rejects(qwenMtTranslate('こんにちは', plus), /完整译文/);
   global.fetch = originalFetch;
-  console.log('background crypto self-check passed');
+  console.log('Background checks passed: Doubao, fixed Qwen-MT-Plus, cache, migration, and endpoint validation');
 })();

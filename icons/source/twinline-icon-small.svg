@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 16/32/48 像素用：不写字，只留奶白、红两道条，条更粗 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a4b50"/><stop offset="1" stop-color="#2c2d31"/></linearGradient>
+    <clipPath id="base"><rect width="1024" height="1024" rx="228"/></clipPath>
+  </defs>
+  <g clip-path="url(#base)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect x="128" y="212" width="768" height="262" rx="131" fill="#ece6da"/>
+    <rect x="128" y="550" width="768" height="262" rx="131" fill="#e04a36"/>
+  </g>
+</svg>
